@@ -62,7 +62,7 @@ input[type=range]{width:100%;accent-color:#e9edf2;margin:2px 0 0}
     <div class="grp" style="margin-top:6px"><button id="catopen">Check every building</button></div></div>
   <p class="notes">Drag to orbit, scroll to zoom, right-drag or arrow keys to move along the streets, hover a building for details. The empty block is 1994, when no postseason was played.
   Height differences are drawn at twice their true size, measured from the median campaign; the ruler and hover cards show true OPS.
-  In the City view every building is a simplified model of a different real tower, named on its hover card, and its highest point, spire included, is its height. The twelve best offenses with 8+ games get the detailed landmarks (Burj Khalifa, Empire State Building, Chrysler Building, Willis Tower, Taipei 101, One World Trade Center, Petronas Towers, Transamerica Pyramid, The Shard, John Hancock Center, Shanghai Tower, 30 St Mary Axe (the Gherkin)); the rest follow their tower's overall form, crown, facade type and colour, not its exact proportions. Roughly, the better the OPS, the taller and better known the real tower. Which tower a campaign has, the lit windows, and the roads, traffic, people, parks and the plain dark low-rises without a plate carry no data; how far the team went is the colour of the plate under the building. The Bars view shows the same data as plain bars.<br><br>
+  In the City view every building is a simplified model of a different real tower, named on its hover card, and its highest point, spire included, is its height: the better the OPS, the taller the building, and it is drawn wider too. The twelve best offenses with 8+ games get the detailed landmarks (Burj Khalifa, Empire State Building, Chrysler Building, Willis Tower, Taipei 101, One World Trade Center, Petronas Towers, Transamerica Pyramid, The Shard, John Hancock Center, Shanghai Tower, 30 St Mary Axe (the Gherkin)); the rest follow their tower's overall form, crown, facade type and colour, not its exact proportions. Roughly, the better the OPS, the taller and better known the real tower. Which tower a campaign has, the lit windows, and the roads, traffic, people, parks and the plain dark low-rises without a plate carry no data; how far the team went is the colour of the plate under the building. The Bars view shows the same data as plain bars.<br><br>
   Data: Lahman Baseball Database (CC BY-SA 3.0) and the MLB Stats API.</p>
 </aside>
 <main id="stage"><div id="fail">This view needs WebGL, which this browser could not start.</div></main>
@@ -1333,6 +1333,10 @@ function frustum(P,d,ax,az,bx,bz,y0,y1,mat){
 function spike(P,mat,r,y0,y1,sides,ox,oz){
   put(P,new THREE.ConeGeometry(r,y1-y0,sides,1),mat,at(ox,(y0+y1)/2,oz,sides===4?Math.PI/4:0));
 }
+// Width follows height, so a better OPS gives a building that is bigger all round, not only taller.
+// Height (the highest point) is still the measure; the width only reinforces it.
+var HMAX=Math.max.apply(null,D.map(function(d){return d.h;}))*HS;
+function girth(H){return FOOT*(0.62+0.78*Math.min(1,H/HMAX));}
 var MS=1;   // mast scale: below 1 for scaled-down short buildings
 function mast(P,y0,y1,ox,oz,r){
   r=(r||0.012)*MS;
@@ -1340,7 +1344,7 @@ function mast(P,y0,y1,ox,oz,r){
   put(P,new THREE.SphereGeometry(0.028*MS,8,6),BEACON,at(ox,y1-0.028*MS,oz));
 }
 // The plate under every tower carries the result colour.
-function plate(P,d){put(P,new THREE.BoxGeometry(0.94,0.035,0.94),PLATE[d.g],at(0,0.0175,0));return P;}
+function plate(P,d){put(P,new THREE.BoxGeometry(1.1,0.035,1.1),PLATE[d.g],at(0,0.0175,0));return P;}
 function round(P,d,r,y0,y1,ox,oz,sides){   // upright round column with windows
   var geo=new THREE.CylinderGeometry(r,r,y1-y0,sides||10,1,false);
   scaleUV(geo,Math.max(1,Math.round(2*Math.PI*r/BAY))/4,(y1-y0)/STOREY/8);
@@ -1370,7 +1374,7 @@ function crown(P,d,kind,cw,B,H,ox,oz){
 }
 function generate(P,d,H){
   MS=H<LOW?Math.max(0.3,H/LOW):1;
-  var r=rng(d.i*7919+101),w=FOOT*(0.8+0.5*r())*MS,q=w/2,i,j,t,n,y,y1,ax,az,a,k,s,geo,pos,rad,tris,spots=[[0,0]],cw=q*0.5;
+  var r=rng(d.i*7919+101),w=girth(H,r())*MS,q=w/2,i,j,t,n,y,y1,ax,az,a,k,s,geo,pos,rad,tris,spots=[[0,0]],cw=q*0.5;
   d.c=13+d.b[3];d.st=d.b[2];
   var body=d.b[0],kind=d.b[1],B=kind===0?H*(0.95+0.03*r()):H*(0.94-0.16*r());
   switch(body){
@@ -1428,7 +1432,7 @@ function generate(P,d,H){
 }
 // Each landmark type is a simplified model of a real tower. Every one ends with its highest point exactly at H.
 function build(d){
-  var P=[],H=d.h*HS,w=FOOT,q=w/2,i,j,t,a,y0,y1,r,s,geo,tris,pos;
+  var P=[],H=d.h*HS,w=girth(H),q=w/2,i,j,t,a,y0,y1,r,s,geo,tris,pos;
   MS=1;if(d.k<0){generate(P,d,H);return finish(plate(P,d));}
   d.st=SKIN[d.k];d.c=d.k;
   if(H<LOW){d.low=1;d.st=d.k%3;d.c=NAMES.length;box(P,d,w,w,0,H);return finish(plate(P,d));}   // too short to model: a low-rise block
