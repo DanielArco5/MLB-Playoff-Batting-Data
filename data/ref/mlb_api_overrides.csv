@@ -1,0 +1,5 @@
+year,team_id,reason
+2023,TEX,BattingPost.csv has about half the at-bats for the 2023 ALCS
+2023,HOU,BattingPost.csv has about half the at-bats for the 2023 ALDS (vs MIN) and ALCS
+2023,MIN,BattingPost.csv has about half the at-bats for the 2023 ALDS (vs HOU)
+2024,CLE,BattingPost.csv is one hit short (82 vs 83); the MLB API total matches the StatMuse spot check (.685)

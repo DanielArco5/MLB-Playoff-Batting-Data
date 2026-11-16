@@ -1,0 +1,11 @@
+year,team_id,team_name,result,G,PA,BA,OBP,SLG,OPS,check_ops,check_source
+1995,CLE,Cleveland Indians,WS-L,15,588,0.219,0.309,0.365,0.674,0.674,StatMuse
+2016,CLE,Cleveland Indians,WS-L,15,532,0.222,0.288,0.375,0.663,0.663,StatMuse
+2024,CLE,Cleveland Guardians,CS,10,387,0.241,0.314,0.371,0.685,0.685,StatMuse
+1977,NYA,New York Yankees,WS-W,11,410,0.253,0.291,0.389,0.681,,
+1981,PHI,Philadelphia Phillies,DS,5,181,0.265,0.318,0.386,0.704,0.704,StatMuse
+1986,NYN,New York Mets,WS-W,13,515,0.231,0.283,0.325,0.609,0.609,StatMuse
+2004,BOS,Boston Red Sox,WS-W,14,609,0.284,0.374,0.453,0.827,0.827,StatMuse
+2014,SFN,San Francisco Giants,WS-W,17,676,0.257,0.324,0.337,0.661,,
+2020,LAN,Los Angeles Dodgers,WS-W,18,697,0.254,0.349,0.465,0.814,0.814,StatMuse
+2025,LAN,Los Angeles Dodgers,WS-W,17,692,0.233,0.320,0.402,0.722,,

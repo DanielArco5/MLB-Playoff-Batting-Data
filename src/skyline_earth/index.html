@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skyline Earth</title>
+<link href="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+<script src="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Cesium.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#0b0d10;color:#fff;font:13px/1.45 'Helvetica Neue',Arial,sans-serif}
+body{display:flex;overflow:hidden}
+#panel{flex:0 0 296px;box-sizing:border-box;padding:18px 16px 14px;background:#10141a;border-right:1px solid #1c2128;
+  overflow-y:auto;display:flex;flex-direction:column;gap:13px}
+#globe{flex:1;min-width:0;height:100vh}
+h1{font-size:19px;line-height:1.2;margin:0}
+p{margin:0;color:#9aa4b2}
+.lab,.ctl>label{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#9aa4b2;margin-bottom:5px}
+#key{list-style:none;margin:0;padding:0}
+#key li{display:flex;align-items:center;gap:8px;padding:2px 0;color:#dfe5ec}
+#key i{flex:0 0 14px;height:14px;border-radius:2px}
+#key b{margin-left:auto;font:12px Menlo,Consolas,monospace;font-weight:400;color:#9aa4b2}
+.grp{display:flex;gap:5px;flex-wrap:wrap}
+button,select{font:12px 'Helvetica Neue',Arial,sans-serif;color:#c9d1d9;background:#151a21;border:1px solid #2a313b;
+  border-radius:4px;padding:6px 10px;cursor:pointer}
+select{width:100%}
+button:hover,select:hover{border-color:#5b6470}
+button.on{background:#e9edf2;color:#0b0d10;border-color:#e9edf2;font-weight:600}
+input[type=range]{width:100%;accent-color:#e9edf2;margin:2px 0 0}
+.val{color:#fff;font-weight:600}
+.hint{font-size:11px;margin-top:4px}
+#count{color:#fff;font:12px Menlo,Consolas,monospace}
+#detail{padding:10px 12px;background:#151a21;border:1px solid #2a313b;border-left:4px solid #3987e5;border-radius:4px;
+  font:12px/1.55 Menlo,Consolas,monospace;color:#fff}
+#detail.empty{border-left-color:#2a313b;color:#9aa4b2;font:12px/1.45 'Helvetica Neue',Arial,sans-serif}
+.notes{font-size:11px;margin-top:auto;padding-top:8px}
+#error{display:none;position:fixed;inset:0;z-index:50;background:#0b0d10;padding:40px;font-size:15px;line-height:1.6}
+#error code{background:#151a21;padding:2px 6px;border-radius:3px}
+@media (max-width:760px){body{flex-direction:column;overflow:auto}#panel{flex:none;border-right:0;border-bottom:1px solid #1c2128}
+  #globe{flex:none;height:78vh}}
+</style>
+</head>
+<body>
+<aside id="panel">
+  <h1>Skyline Earth</h1>
+  <p id="intro">Every postseason offense as a skyscraper in its team's city. The taller the tower, the higher the team's OPS that October.</p>
+  <div><span class="lab">Colour key: how far the team went</span><ul id="key"></ul>
+    <p class="hint">From far away each city is one wide column. Its height is the median OPS of the campaigns there and its colour is their median finish. It fades as you fly in to the real towers.</p></div>
+  <div class="ctl"><label for="fly">Fly to a skyline</label><select id="fly"><option value="">Choose an organization</option></select>
+    <div class="grp" style="margin-top:6px"><button id="home">Whole map</button></div></div>
+  <div id="detail" class="empty">Click a tower to see that team's postseason.</div>
+  <div class="ctl"><label for="mult">Tower height: <span class="val" id="mval">×1</span></label>
+    <input type="range" id="mult" min="1" max="50" step="1" value="1">
+    <p class="hint" id="scale"></p></div>
+  <div class="ctl"><label for="season">Season</label><select id="season"><option value="">All seasons</option></select></div>
+  <div class="ctl"><label for="ming">Minimum games: <span class="val" id="gval">1</span></label>
+    <input type="range" id="ming" min="1" max="20" step="1" value="1"></div>
+  <div class="ctl"><span class="lab">Postseason streak</span><div class="grp" data-key="streak">
+    <button data-v="any" class="on">Any</button><button data-v="long" id="longbtn">4+ straight years</button></div></div>
+  <div><div id="count"></div><button id="reset" style="margin-top:6px">Reset filters</button></div>
+  <p class="notes">Drag to move, scroll to zoom, hold Ctrl (or the middle button) and drag to tilt. Towers are 150 m wide and stand 250 m apart, oldest season at the centre of each downtown.<br><br>
+  Map data © OpenStreetMap contributors. Stats: Lahman Baseball Database (CC BY-SA 3.0) and the MLB Stats API.</p>
+</aside>
+<div id="globe"></div>
+<div id="error"></div>
+<script>
+var LEVELS = [
+  ["WC", "Lost in the Wild Card round", "#184f95"],
+  ["DS", "Lost in the Division Series", "#256abf"],
+  ["CS", "Lost in the League Championship Series", "#3987e5"],
+  ["WS-L", "Lost the World Series", "#86b6ef"],
+  ["WS-W", "Won the World Series", "#cde2fb"]
+];
+var LEVEL = {};
+LEVELS.forEach(function (l, n) { LEVEL[l[0]] = n; });
+var GHOST_ALPHA = 0.1;
+// City columns are solid when the camera is farther than COLUMN_FAR metres and gone inside COLUMN_NEAR
+var COLUMN_FAR = 300000, COLUMN_NEAR = 90000;
+
+function fail(message) {
+  var box = document.getElementById("error");
+  box.innerHTML = message;
+  box.style.display = "block";
+}
+function fmt(x) { return x.toFixed(3).replace(/^0/, ""); }
+
+if (typeof Cesium === "undefined") {
+  fail("The CesiumJS library could not be loaded. This page needs an internet connection for the globe and the map.");
+} else {
+  fetch("campaigns.json").then(function (r) { return r.json(); }).then(start).catch(function (err) {
+    fail("Could not load <code>campaigns.json</code>. Browsers block it when this page is opened straight from disk.<br><br>" +
+      "In a terminal, run <code>python3 -m http.server 8000</code> inside <code>src/skyline_earth/</code>, " +
+      "then open <code>http://localhost:8000</code>.<br><br><span style='color:#9aa4b2'>" + err + "</span>");
+  });
+}
+
+function start(data) {
+  var meta = data.meta, places = data.places, towers = data.towers;
+  var state = { season: "", minG: 1, streak: "any", mult: 1 };
+  var selected = null;
+
+  var viewer = new Cesium.Viewer("globe", {
+    baseLayer: new Cesium.ImageryLayer(new Cesium.OpenStreetMapImageryProvider({ url: "https://tile.openstreetmap.org/" })),
+    baseLayerPicker: false, geocoder: false, timeline: false, animation: false, homeButton: false,
+    sceneModePicker: false, navigationHelpButton: false, infoBox: false, selectionIndicator: false,
+    fullscreenButton: false
+  });
+  // Dim the map so the towers carry the colour
+  var layer = viewer.imageryLayers.get(0);
+  layer.brightness = 0.42; layer.saturation = 0.15; layer.contrast = 1.15;
+  viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#0b0d10");
+  // Light the towers from the camera, so they never fall into night shadow
+  viewer.scene.light = new Cesium.DirectionalLight({ direction: new Cesium.Cartesian3(1, 0, 0) });
+  viewer.scene.preRender.addEventListener(function (scene) {
+    Cesium.Cartesian3.clone(scene.camera.directionWC, scene.light.direction);
+  });
+
+  viewer.scene.preRender.addEventListener(function (scene) {
+    var eye = scene.camera.positionWC;
+    places.forEach(function (p) {
+      if (!p.column) return;
+      var t = (Cesium.Cartesian3.distance(eye, p.ground) - COLUMN_NEAR) / (COLUMN_FAR - COLUMN_NEAR);
+      t = Math.min(1, Math.max(0, t));
+      p.alpha = t * t * (3 - 2 * t);
+      p.column.show = p.alpha > 0.01;
+    });
+  });
+
+  var colors = LEVELS.map(function (l) { return Cesium.Color.fromCssColorString(l[2]); });
+  var ghosts = colors.map(function (c) { return c.withAlpha(GHOST_ALPHA); });
+  var edge = Cesium.Color.fromCssColorString("#0b0d10").withAlpha(0.7);
+
+  function height(t) { return t.ops * 1000 * state.mult; }
+  function passes(t) {
+    return (!state.season || t.year === +state.season) && t.g >= state.minG && (state.streak === "any" || t.streak);
+  }
+
+  towers.forEach(function (t) {
+    var h = height(t);
+    t.entity = viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(t.lon, t.lat, h / 2),
+      box: {
+        dimensions: new Cesium.Cartesian3(meta.footprint, meta.footprint, h),
+        material: colors[LEVEL[t.result]], outline: true, outlineColor: edge
+      }
+    });
+    t.entity.tower = t;
+  });
+
+  function columnHeight(p) { return p.medOps * 1000 * state.mult; }
+  places.forEach(function (p) {
+    var h = columnHeight(p), base = colors[LEVEL[p.medResult]];
+    p.alpha = 1;
+    p.ground = Cesium.Cartesian3.fromDegrees(p.colLon, p.colLat, 0);
+    // One wide column per city for the far view. Same height rule as the towers (OPS x 1000 m x slider).
+    p.column = viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(p.colLon, p.colLat, h / 2),
+      box: {
+        dimensions: new Cesium.Cartesian3(meta.columnWidth, meta.columnWidth, h),
+        material: new Cesium.ColorMaterialProperty(new Cesium.CallbackProperty(function () { return base.withAlpha(p.alpha); }, false)),
+        outline: true,
+        outlineColor: new Cesium.CallbackProperty(function () { return edge.withAlpha(0.7 * p.alpha); }, false)
+      }
+    });
+    p.column.place = p;
+    p.entity = viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(p.colLon, p.colLat, h + 50),
+      label: { text: p.name, font: "12px Helvetica Neue, Arial, sans-serif", fillColor: Cesium.Color.WHITE,
+               outlineColor: Cesium.Color.BLACK, outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+               verticalOrigin: Cesium.VerticalOrigin.BOTTOM, pixelOffset: new Cesium.Cartesian2(0, -10),
+               distanceDisplayCondition: new Cesium.DistanceDisplayCondition(60000, 6000000),
+               scaleByDistance: new Cesium.NearFarScalar(200000, 1.0, 5000000, 0.75) }
+    });
+    p.entity.place = p;
+  });
+
+  function restyle() {
+    var shown = 0;
+    towers.forEach(function (t) {
+      var ok = passes(t), level = LEVEL[t.result];
+      if (ok) shown++;
+      t.entity.box.material = ok ? colors[level] : ghosts[level];
+      t.entity.box.outline = ok;
+    });
+    document.getElementById("count").textContent = "Showing " + shown + " of " + towers.length + " campaigns";
+  }
+  function resize() {
+    towers.forEach(function (t) {
+      var h = height(t);
+      t.entity.position = Cesium.Cartesian3.fromDegrees(t.lon, t.lat, h / 2);
+      t.entity.box.dimensions = new Cesium.Cartesian3(meta.footprint, meta.footprint, h);
+    });
+    places.forEach(function (p) {
+      var h = columnHeight(p);
+      p.column.position = Cesium.Cartesian3.fromDegrees(p.colLon, p.colLat, h / 2);
+      p.column.box.dimensions = new Cesium.Cartesian3(meta.columnWidth, meta.columnWidth, h);
+      p.entity.position = Cesium.Cartesian3.fromDegrees(p.colLon, p.colLat, h + 50);
+    });
+    document.getElementById("mval").textContent = "×" + state.mult;
+    document.getElementById("scale").textContent = state.mult === 1
+      ? "True scale: 1 m per .001 of OPS. A .828 OPS tower is 828 m, the height of the Burj Khalifa."
+      : "Every tower is stretched " + state.mult + " times. A .828 OPS tower is " + (0.828 * state.mult).toFixed(1) + " km tall.";
+  }
+
+  function flyToPlace(p) {
+    var top = 0.9 * 1000 * state.mult;
+    var target = Cesium.Cartesian3.fromDegrees(p.lon, p.lat, top * 0.35);
+    var range = Math.max(p.radius * 5, top * 3.2, 3000);
+    viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(target, 1), {
+      offset: new Cesium.HeadingPitchRange(Cesium.Math.toRadians(25), Cesium.Math.toRadians(-16), range), duration: 2.4
+    });
+  }
+  function flyHome(duration) {
+    viewer.camera.flyTo({ destination: Cesium.Rectangle.fromDegrees(-127, 23, -64, 51), duration: duration });
+  }
+
+  function showDetail(t) {
+    var box = document.getElementById("detail");
+    if (!t) { box.className = "empty"; box.textContent = "Click a tower to see that team's postseason."; return; }
+    var rank = "#" + t.rank + " of " + meta.campaigns + " campaigns<br>" + (t.rankQual
+      ? "#" + t.rankQual + " of " + meta.qualified + " with " + meta.minG + "+ games"
+      : "Under " + meta.minG + " games, not ranked among full runs");
+    var streak = t.streakLen >= meta.longStreak ? "<br>Postseason streak: " + t.streakLen + " straight" : "";
+    box.className = "";
+    box.style.borderLeftColor = LEVELS[LEVEL[t.result]][2];
+    box.innerHTML = "<b>" + t.year + " " + t.team + "</b><br>" + LEVELS[LEVEL[t.result]][1] + "<br><b>OPS " + fmt(t.ops) +
+      "</b>  (OBP " + fmt(t.obp) + " / SLG " + fmt(t.slg) + ")<br>" + t.g + " games, " + t.pa + " PA, " + t.rpg.toFixed(1) +
+      " runs per game<br>October average that year: " + fmt(t.psAvg) + "<br>" + rank + streak + "<br>Home park: " + t.park;
+  }
+  function select(t) {
+    if (selected) selected.entity.box.outlineColor = edge;
+    selected = t;
+    if (t) t.entity.box.outlineColor = Cesium.Color.WHITE;
+    showDetail(t);
+  }
+
+  var handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+  handler.setInputAction(function (click) {
+    var hit = viewer.scene.pick(click.position), id = hit && hit.id;
+    if (id && id.tower) select(id.tower);
+    else if (id && id.place) flyToPlace(id.place);
+    else select(null);
+  }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+  // Panel
+  var counts = {};
+  towers.forEach(function (t) { counts[t.result] = (counts[t.result] || 0) + 1; });
+  document.getElementById("key").innerHTML = LEVELS.slice().reverse().map(function (l) {
+    return '<li><i style="background:' + l[2] + '"></i>' + l[1] + "<b>" + (counts[l[0]] || 0) + "</b></li>";
+  }).join("");
+  document.getElementById("intro").textContent = meta.campaigns + " postseason offenses, " + meta.startYear + "–" + meta.endYear +
+    ", each one a skyscraper in its team's city. The taller the tower, the higher the team's OPS that October.";
+  var fly = document.getElementById("fly");
+  places.map(function (p, n) { return n; }).sort(function (a, b) {
+    return places[b].count - places[a].count || places[a].name.localeCompare(places[b].name);
+  }).forEach(function (n) {
+    var p = places[n], o = document.createElement("option");
+    o.value = n; o.textContent = p.name + " (" + p.count + (p.count === 1 ? " tower)" : " towers)");
+    fly.appendChild(o);
+  });
+  var season = document.getElementById("season"), years = {};
+  towers.forEach(function (t) { years[t.year] = (years[t.year] || 0) + 1; });
+  Object.keys(years).sort().reverse().forEach(function (y) {
+    var o = document.createElement("option");
+    o.value = y; o.textContent = y + " (" + years[y] + " teams)";
+    season.appendChild(o);
+  });
+  document.getElementById("ming").max = meta.maxG;
+  document.getElementById("longbtn").textContent = meta.longStreak + "+ straight years";
+
+  function sync() {
+    document.querySelectorAll(".grp[data-key] button").forEach(function (b) {
+      b.classList.toggle("on", state[b.parentNode.dataset.key] === b.dataset.v);
+    });
+    season.value = state.season;
+    document.getElementById("ming").value = state.minG;
+    document.getElementById("gval").textContent = state.minG;
+  }
+  fly.addEventListener("change", function () { if (fly.value !== "") flyToPlace(places[+fly.value]); });
+  document.getElementById("home").addEventListener("click", function () { fly.value = ""; flyHome(2.0); });
+  season.addEventListener("change", function () { state.season = season.value; restyle(); });
+  document.getElementById("ming").addEventListener("input", function (e) { state.minG = +e.target.value; sync(); restyle(); });
+  document.querySelectorAll(".grp[data-key] button").forEach(function (b) {
+    b.addEventListener("click", function () { state[b.parentNode.dataset.key] = b.dataset.v; sync(); restyle(); });
+  });
+  document.getElementById("reset").addEventListener("click", function () {
+    state.season = ""; state.minG = 1; state.streak = "any"; sync(); restyle();
+  });
+  var pending = false;
+  document.getElementById("mult").addEventListener("input", function (e) {
+    state.mult = +e.target.value;
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(function () { pending = false; resize(); });
+  });
+
+  sync(); restyle(); resize(); flyHome(0);
+  // Deep link: index.html?fly=CLE&mult=3 opens on that organization's skyline
+  var query = new URLSearchParams(location.search), want = query.get("fly");
+  if (query.get("mult")) {
+    state.mult = Math.min(50, Math.max(1, +query.get("mult") || 1));
+    document.getElementById("mult").value = state.mult; resize();
+  }
+  if (want) {
+    var index = places.findIndex(function (p) { return p.franch === want.toUpperCase(); });
+    if (index >= 0) { fly.value = index; flyToPlace(places[index]); }
+  }
+  window.skyline = { viewer: viewer, places: places, towers: towers, flyToPlace: flyToPlace, select: select, state: state };
+}
+</script>
+</body>
+</html>
