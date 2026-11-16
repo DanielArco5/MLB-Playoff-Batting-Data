@@ -19,8 +19,10 @@ A **View** switch offers two versions of that field:
 
 ## Buildings
 
-- **Every building is different.** 362 campaigns get a generated design: one of ten body types, one of eight crowns, a facade style, a colour and all proportions, drawn from a random stream seeded by the campaign.
-- **Twelve landmarks.** The twelve best full runs (8+ games) stand as simplified models of real towers, tallest real tower first: Burj Khalifa, Shanghai Tower, One World Trade Center, Taipei 101, Petronas Towers, Willis Tower, Empire State Building, John Hancock Center, Chrysler Building, The Shard, Transamerica Pyramid, 30 St Mary Axe.
+- **Every building is modelled on a different real tower**, named on its hover card ("Modelled on: Key Tower, Cleveland") and in the catalog. 374 campaigns, 374 towers.
+- **Twelve detailed landmarks.** The twelve best full runs (8+ games) get hand-built models, tallest real tower first: Burj Khalifa, Shanghai Tower, One World Trade Center, Taipei 101, Petronas Towers, Willis Tower, Empire State Building, John Hancock Center, Chrysler Building, The Shard, Transamerica Pyramid, 30 St Mary Axe.
+- **362 simplified likenesses.** The other towers are listed in `src/real_towers.py`, each with four traits the model follows: overall form, crown, facade type and colour. Finer proportions come from a random stream seeded by the campaign, so these are likenesses, not replicas. The list runs roughly from the tallest and best known down and is handed out in order of OPS.
+- **Short buildings are scaled-down towers**, not squat blocks.
 - **The highest point is the height**, spire included.
 - **Catalog.** "Check every building" lists all 374, grouped by organization in season order. Each picture is zoomed to fit, so sizes there do not compare. Clicking one flies to it.
 
@@ -28,7 +30,7 @@ A **View** switch offers two versions of that field:
 
 The page says this in its notes; keep it true.
 
-- A building's design and colour, and which windows are lit.
+- Which real tower a campaign has, and which windows are lit.
 - Roads, cars, traffic lights, people, trees, lamps, parks.
 - The plain dark low-rise blocks. They have no plate and no hover card, and stand only where there is no campaign or in the corners of a campaign's block.
 
@@ -44,3 +46,9 @@ Scale: one storey is 0.09 units (about 3 m), so a block is about 110 m.
 ## Filters
 
 Organization, season, minimum games, 4+ year streak, and faded/hidden for the rest, as on the 360 page.
+
+## Keeping it smooth
+
+- Small parts of a building (roofs, trim, masts, beacon, plate) share two vertex-coloured materials, so a building is about three draw calls.
+- Materials are Lambert, the canvas is opaque, and the pixel ratio is capped at 1.5.
+- If frames run longer than about 24 ms for a while, the page lowers its render resolution step by step and updates the walkers less often.

@@ -12,6 +12,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config as C
+import real_towers
 from interactive_360 import BG, LEVEL_INDEX, LEVELS, MIN_HEIGHT, MODES, MUTED, PANEL, fmt, hover
 
 VENDOR = C.ROOT / "src" / "vendor"
@@ -35,7 +36,9 @@ BUILDINGS = ["Burj Khalifa", "Empire State Building", "Chrysler Building", "Will
 LANDMARK_ORDER = [0, 10, 5, 4, 6, 3, 1, 9, 2, 8, 7, 11]
 # Facade colours for the generated designs
 PALETTE = ["#c9d3dd", "#d6cbb2", "#b9b4a8", "#8c9aa8", "#5d6b78", "#a8c2d4", "#7fa89c", "#c7a98a", "#9c6f5a",
-           "#e3e1da", "#44484f", "#6d8fb0", "#b0855f", "#8fa3b8"]
+           "#e3e1da", "#44484f", "#6d8fb0", "#b0855f", "#8fa3b8", "#c9a84a", "#3f5f8f", "#3f6a5c", "#c79a8f"]
+LANDMARK_CITIES = ["Dubai", "New York", "New York", "Chicago", "Taipei", "New York", "Kuala Lumpur", "San Francisco",
+                   "London", "Chicago", "Shanghai", "London"]
 # Real-life facade colour of each tower, in the same order, plus a last entry for the low-rise block.
 TINTS = ["#c3d0dd", "#d2c7ae", "#cfccc2", "#34363b", "#6fa497", "#a3bdd6", "#c9ced4", "#e8e6de", "#b0cadc",
          "#3a3d42", "#93b3c6", "#56808f", "#a0a5ac"]
@@ -104,7 +107,7 @@ input[type=range]{width:100%;accent-color:#e9edf2;margin:2px 0 0}
     <div class="grp" style="margin-top:6px"><button id="catopen">Check every building</button></div></div>
   <p class="notes">Drag to orbit, scroll to zoom, right-drag or arrow keys to move along the streets, hover a building for details. The empty block is 1994, when no postseason was played.
   Height differences are drawn at twice their true size, measured from the median campaign; the ruler and hover cards show true OPS.
-  In the City view every building is different and its highest point, spire included, is its height. The twelve best offenses with 8+ games stand as simplified models of real towers, tallest first (__NAMELIST__); every other campaign has its own one-of-a-kind design. A building's design and colour, its lit windows, and the roads, traffic, people, parks and the plain dark low-rises without a plate are decoration and mean nothing; how far the team went is the colour of the plate under the building. The Bars view shows the same data as plain bars.<br><br>
+  In the City view every building is a simplified model of a different real tower, named on its hover card, and its highest point, spire included, is its height. The twelve best offenses with 8+ games get the detailed landmarks (__NAMELIST__); the rest follow their tower's overall form, crown, facade type and colour, not its exact proportions. Roughly, the better the OPS, the taller and better known the real tower. Which tower a campaign has, the lit windows, and the roads, traffic, people, parks and the plain dark low-rises without a plate carry no data; how far the team went is the colour of the plate under the building. The Bars view shows the same data as plain bars.<br><br>
   Data: Lahman Baseball Database (CC BY-SA 3.0) and the MLB Stats API.</p>
 </aside>
 <main id="stage"><div id="fail">This view needs WebGL, which this browser could not start.</div></main>
@@ -119,20 +122,23 @@ var HS=__HS__, FOOT=__FOOT__, STOREY=__STOREY__, START=__START__, END=__END__, S
 // Treat hex colours as sRGB, so materials match the colour key on screen
 THREE.ColorManagement.legacyMode=false;
 var stage=document.getElementById('stage'), renderer;
-try{renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});}
+try{renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});}
 catch(err){document.getElementById('fail').style.display='block';return;}
-renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+var DPR=Math.min(window.devicePixelRatio||1,1.5);renderer.setPixelRatio(DPR);
 renderer.outputEncoding=THREE.sRGBEncoding;
-renderer.setClearColor(0x000000,0);
+renderer.setClearColor(0x070b14,1);
 stage.appendChild(renderer.domElement);
 var scene=new THREE.Scene();
 scene.fog=new THREE.FogExp2(0x101a30,0.004);
 // Everything laid out on the year x rank grid (ground, labels, ruler) lives in this group, stretched to the pitch
 var field=new THREE.Group();field.scale.set(PITCH,1,PITCH);scene.add(field);
-var camera=new THREE.PerspectiveCamera(36,1,0.1,2500);
+(function(){var c=document.createElement('canvas');c.width=2;c.height=256;var g=c.getContext('2d'),gr=g.createLinearGradient(0,0,0,256);
+  gr.addColorStop(0,'#03050a');gr.addColorStop(0.48,'#0a1224');gr.addColorStop(0.72,'#1c2c4a');gr.addColorStop(1,'#0e1626');
+  g.fillStyle=gr;g.fillRect(0,0,2,256);var t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;scene.background=t;})();
+var camera=new THREE.PerspectiveCamera(36,1,0.3,1700);
 var controls=new THREE.OrbitControls(camera,renderer.domElement);
 controls.enableDamping=true;controls.dampingFactor=0.08;controls.maxPolarAngle=Math.PI/2-0.04;
-controls.minDistance=1.2;controls.maxDistance=140*PITCH;controls.zoomSpeed=0.9;controls.screenSpacePanning=false;controls.listenToKeyEvents(window);controls.keyPanSpeed=28;
+controls.minDistance=1.2;controls.maxDistance=140*PITCH;controls.zoomSpeed=0.7;controls.screenSpacePanning=false;controls.listenToKeyEvents(window);controls.keyPanSpeed=28;
 var sprites=[];
 // The two views use different spacing: a full city block per campaign in the City view, tight rows in Bars.
 function setPitch(p){PITCH=p;field.scale.set(p,1,p);controls.maxDistance=140*p;sprites.forEach(function(sp){sp.scale.y=sp.userData.size*p;});}
@@ -180,14 +186,17 @@ for(s=0;s<STYLES;s++)skins.push(facade(s,101+s*17));
 var TINT=__TINTS__,WALL=[],ROOF=[],TRIM=[],PLATE=[];
 for(g=0;g<TINT.length;g++){
   WALL.push([]);
-  for(s=0;s<STYLES;s++)WALL[g].push(new THREE.MeshStandardMaterial({color:TINT[g],map:skins[s].map,emissive:0xffffff,
-    emissiveMap:skins[s].glow,emissiveIntensity:0.9,roughness:s>=2?0.3:0.8,metalness:s>=2?0.4:0.05}));
-  ROOF.push(new THREE.MeshStandardMaterial({color:new THREE.Color(TINT[g]).multiplyScalar(0.42),roughness:0.9}));
-  TRIM.push(new THREE.MeshStandardMaterial({color:new THREE.Color(TINT[g]).lerp(new THREE.Color(0xffffff),0.3),roughness:0.5,metalness:0.4}));
+  for(s=0;s<STYLES;s++)WALL[g].push(new THREE.MeshLambertMaterial({color:TINT[g],map:skins[s].map,emissive:0xffffff,
+    emissiveMap:skins[s].glow,emissiveIntensity:0.9}));
+  ROOF.push(new THREE.MeshLambertMaterial({color:new THREE.Color(TINT[g]).multiplyScalar(0.42)}));
+  TRIM.push(new THREE.MeshLambertMaterial({color:new THREE.Color(TINT[g]).lerp(new THREE.Color(0xffffff),0.3)}));
 }
 for(g=0;g<COLORS.length;g++)PLATE.push(new THREE.MeshBasicMaterial({color:COLORS[g]}));
-var STEEL=new THREE.MeshStandardMaterial({color:0x9aa4b2,roughness:0.5,metalness:0.6});
+ROOF.concat(TRIM).forEach(function(m){m.userData.k=1;});PLATE.forEach(function(m){m.userData.k=2;});
+var SOLID=new THREE.MeshLambertMaterial({vertexColors:true}),GLOW=new THREE.MeshBasicMaterial({vertexColors:true}),WHITE=new THREE.Color(1,1,1);
+var STEEL=new THREE.MeshLambertMaterial({color:0x9aa4b2});
 var BEACON=new THREE.MeshBasicMaterial({color:0xff3b30});
+STEEL.userData.k=1;BEACON.userData.k=2;
 var GHOST=new THREE.MeshBasicMaterial({color:0x6f86ad,transparent:true,opacity:0.05,depthWrite:false});
 
 // ---------- building parts ----------
@@ -205,16 +214,17 @@ function put(P,geo,mats,m){
   var pos=geo.attributes.position.array,nor=geo.attributes.normal.array,uv=geo.attributes.uv.array;
   var groups=geo.groups.length?geo.groups:[{start:0,count:pos.length/3,materialIndex:0}];
   groups.forEach(function(gr){
-    var mat=Array.isArray(mats)?(mats[gr.materialIndex]||mats[0]):mats,b=null,i;
+    var src=Array.isArray(mats)?(mats[gr.materialIndex]||mats[0]):mats,k=src.userData.k,mat=k===1?SOLID:k===2?GLOW:src,col=k?src.color:WHITE,b=null,i;
     for(i=0;i<P.length;i++)if(P[i].mat===mat)b=P[i];
-    if(!b){b={mat:mat,p:[],n:[],u:[]};P.push(b);}
+    if(!b){b={mat:mat,p:[],n:[],u:[],c:[]};P.push(b);}
     for(i=gr.start;i<gr.start+gr.count;i++){b.p.push(pos[3*i],pos[3*i+1],pos[3*i+2]);
-      b.n.push(nor[3*i],nor[3*i+1],nor[3*i+2]);b.u.push(uv[2*i],uv[2*i+1]);}
+      b.n.push(nor[3*i],nor[3*i+1],nor[3*i+2]);b.u.push(uv[2*i],uv[2*i+1]);b.c.push(col.r,col.g,col.b);}
   });
 }
 function finish(P){
-  var p=[],n=[],u=[],mats=[],geo=new THREE.BufferGeometry();
-  P.forEach(function(b,i){geo.addGroup(p.length/3,b.p.length/3,i);mats.push(b.mat);p=p.concat(b.p);n=n.concat(b.n);u=u.concat(b.u);});
+  var p=[],n=[],u=[],c=[],mats=[],geo=new THREE.BufferGeometry();
+  P.forEach(function(b,i){geo.addGroup(p.length/3,b.p.length/3,i);mats.push(b.mat);p=p.concat(b.p);n=n.concat(b.n);u=u.concat(b.u);c=c.concat(b.c);});
+  geo.setAttribute('color',new THREE.Float32BufferAttribute(c,3));
   geo.setAttribute('position',new THREE.Float32BufferAttribute(p,3));
   geo.setAttribute('normal',new THREE.Float32BufferAttribute(n,3));
   geo.setAttribute('uv',new THREE.Float32BufferAttribute(u,2));
@@ -261,10 +271,11 @@ function frustum(P,d,ax,az,bx,bz,y0,y1,mat){
 function spike(P,mat,r,y0,y1,sides,ox,oz){
   put(P,new THREE.ConeGeometry(r,y1-y0,sides,1),mat,at(ox,(y0+y1)/2,oz,sides===4?Math.PI/4:0));
 }
+var MS=1;   // mast scale: below 1 for scaled-down short buildings
 function mast(P,y0,y1,ox,oz,r){
-  r=r||0.012;
+  r=(r||0.012)*MS;
   put(P,new THREE.CylinderGeometry(r*0.5,r*1.6,y1-y0,6),STEEL,at(ox,(y0+y1)/2,oz));
-  put(P,new THREE.SphereGeometry(0.028,8,6),BEACON,at(ox,y1-0.028,oz));
+  put(P,new THREE.SphereGeometry(0.028*MS,8,6),BEACON,at(ox,y1-0.028*MS,oz));
 }
 // The plate under every tower carries the result colour.
 function plate(P,d){put(P,new THREE.BoxGeometry(0.94,0.035,0.94),PLATE[d.g],at(0,0.0175,0));return P;}
@@ -274,8 +285,9 @@ function round(P,d,r,y0,y1,ox,oz,sides){   // upright round column with windows
   put(P,geo,[WALL[d.c][d.st],ROOF[d.c],ROOF[d.c]],at(ox,(y0+y1)/2,oz));
 }
 // ---------- one-of-a-kind buildings ----------
-// Every campaign outside the twelve landmarks gets its own design: a body type, a crown type, a facade,
-// a colour and all their proportions are drawn from a random stream seeded by the campaign, so no two match.
+// Every campaign outside the twelve landmarks is modelled on its own real tower (d.bn). The tower's traits
+// d.b = [form, crown, facade, colour, sides] come from real_towers.py; only the finer proportions are drawn
+// from a random stream seeded by the campaign. Short buildings are scaled-down towers, not squat blocks.
 function crown(P,d,kind,cw,B,H,ox,oz){
   var h=H-B,t,pts=[];
   switch(kind){
@@ -295,13 +307,10 @@ function crown(P,d,kind,cw,B,H,ox,oz){
   }
 }
 function generate(P,d,H){
-  var r=rng(d.i*7919+101),w=FOOT*(0.8+0.5*r()),q=w/2,i,j,t,n,y,y1,ax,az,a,k,s,geo,pos,rad,tris,spots=[[0,0]],cw=q*0.5;
-  d.c=13+Math.floor(r()*(TINT.length-13));d.st=Math.floor(r()*STYLES);
-  if(H<LOW){   // too short for a tower: a low-rise block, still one of a kind
-    ax=w*(0.8+0.3*r());az=w*(0.6+0.5*r());
-    if(r()<0.5&&H>0.2){box(P,d,ax,az,0,H*0.7);box(P,d,ax*(0.4+0.4*r()),az*(0.4+0.4*r()),H*0.7,H);}else box(P,d,ax,az,0,H);
-    return;}
-  var body=Math.floor(r()*10),kind=Math.floor(r()*8),B=kind===0?H*(0.95+0.03*r()):H*(0.94-0.16*r());
+  MS=H<LOW?Math.max(0.3,H/LOW):1;
+  var r=rng(d.i*7919+101),w=FOOT*(0.8+0.5*r())*MS,q=w/2,i,j,t,n,y,y1,ax,az,a,k,s,geo,pos,rad,tris,spots=[[0,0]],cw=q*0.5;
+  d.c=13+d.b[3];d.st=d.b[2];
+  var body=d.b[0],kind=d.b[1],B=kind===0?H*(0.95+0.03*r()):H*(0.94-0.16*r());
   switch(body){
     case 0: // rectangular setbacks
       n=2+Math.floor(r()*4);ax=q;az=q*(0.6+0.4*r());y=0;
@@ -310,7 +319,7 @@ function generate(P,d,H){
     case 1: // tapering slab
       az=q*(0.6+0.4*r());k=0.3+0.6*r();frustum(P,d,q,az,q*k,az*k,0,B);cw=Math.min(q,az)*k*0.8;break;
     case 2: // polygonal or round tiers
-      s=[6,8,12,16][Math.floor(r()*4)];n=1+Math.floor(r()*3);rad=q;y=0;
+      s=d.b[4]||[6,8][Math.floor(r()*2)];n=1+Math.floor(r()*3);rad=q;y=0;
       for(t=0;t<n;t++){y1=t===n-1?B:y+(B-y)*(0.35+0.4*r());k=0.8+0.2*r();prism(P,d,rad,rad*k,y,y1,s);y=y1;cw=rad*k;rad=cw*(0.6+0.3*r());}
       cw*=0.7;break;
     case 3: // twisting lobed tower
@@ -347,6 +356,8 @@ function generate(P,d,H){
         tris.push(SX[i]*q,y,SZ[i]*q, SX[j]*q,y,SZ[j]*q, TX[i],B,TZ[i],  TX[i],B,TZ[i], TX[j],B,TZ[j], SX[j]*q,y,SZ[j]*q);}
       facets(P,WALL[d.c][d.st],tris,bays(w*3.4)/4);
       box(P,d,q*Math.SQRT2,q*Math.SQRT2,B-H*0.01,B,0,0,Math.PI/4,TRIM[d.c]);cw=q*0.5;break;
+    case 10: // plain box or slab
+      az=q*(0.55+0.45*r());box(P,d,2*q,2*az,0,B);cw=Math.min(q,az)*0.6;break;
     default: // flared tiers on a base
       n=4+Math.floor(r()*6);y=B*(0.1+0.15*r());k=0.55+0.2*r();frustum(P,d,q,q,q*(k+0.15),q*(k+0.15),0,y);
       for(t=0;t<n;t++)frustum(P,d,q*k,q*k,q*(k+0.14),q*(k+0.14),y+(B-y)*t/n,y+(B-y)*(t+1)/n);cw=q*k*0.6;
@@ -356,7 +367,7 @@ function generate(P,d,H){
 // Each landmark type is a simplified model of a real tower. Every one ends with its highest point exactly at H.
 function build(d){
   var P=[],H=d.h*HS,w=FOOT,q=w/2,i,j,t,a,y0,y1,r,s,geo,tris,pos;
-  if(d.k<0){generate(P,d,H);return finish(plate(P,d));}
+  MS=1;if(d.k<0){generate(P,d,H);return finish(plate(P,d));}
   d.st=SKIN[d.k];d.c=d.k;
   if(H<LOW){d.low=1;d.st=d.k%3;d.c=NAMES.length;box(P,d,w,w,0,H);return finish(plate(P,d));}   // too short to model: a low-rise block
   switch(d.k){
@@ -438,7 +449,7 @@ function build(d){
   }
   return finish(plate(P,d));
 }
-var builds=[],bars=[],pick=[],FLAT=COLORS.map(function(c){return new THREE.MeshStandardMaterial({color:new THREE.Color(c).multiplyScalar(0.5),roughness:0.85});});
+var builds=[],bars=[],pick=[],FLAT=COLORS.map(function(c){return new THREE.MeshLambertMaterial({color:new THREE.Color(c).multiplyScalar(0.5)});});
 D.forEach(function(d,ix){
   d.i=ix;var m=build(d);m.position.set((d.y-START)*CP,0,-d.s*CP);m.userData.ix=ix;m.userData.mat=m.material;scene.add(m);builds.push(m);
   var H=d.h*HS,b=new THREE.Mesh(new THREE.BoxGeometry(FOOT,H,FOOT),FLAT[d.g]);
@@ -467,17 +478,17 @@ var block=canvasTexture(1024,1024,function(c){
 block.wrapS=block.wrapT=THREE.RepeatWrapping;block.repeat.set(YEARS+2,SLOTS+2);
 var grid=canvasTexture(64,64,function(c){c.fillStyle='#0f141b';c.fillRect(0,0,64,64);c.fillStyle='#232b36';c.fillRect(0,0,64,1);c.fillRect(0,0,1,64);});
 grid.wrapS=grid.wrapT=THREE.RepeatWrapping;grid.repeat.set(YEARS+2,SLOTS+2);
-var STREETS=new THREE.MeshStandardMaterial({map:block,roughness:1}),PLAIN=new THREE.MeshStandardMaterial({map:grid,roughness:1});
+var STREETS=new THREE.MeshLambertMaterial({map:block}),PLAIN=new THREE.MeshLambertMaterial({map:grid});
 var ground=new THREE.Mesh(new THREE.PlaneGeometry(YEARS+2,SLOTS+2),STREETS);
 ground.rotation.x=-Math.PI/2;ground.position.set((YEARS-1)/2,0,-(SLOTS+1)/2);field.add(ground);
 var apron=new THREE.Mesh(new THREE.PlaneGeometry(5000,5000),new THREE.MeshBasicMaterial({color:0x070a10,fog:false}));
-apron.rotation.x=-Math.PI/2;apron.position.set((YEARS-1)/2*CP,-0.02,-(SLOTS+1)/2*CP);scene.add(apron);
+apron.rotation.x=-Math.PI/2;apron.position.set((YEARS-1)/2*CP,-0.25,-(SLOTS+1)/2*CP);scene.add(apron);
 var CELL=64,strip=canvasTexture(YEARS*CELL,72,function(c,w,h){
   c.clearRect(0,0,w,h);c.font='600 23px Menlo,Consolas,monospace';c.textAlign='center';c.textBaseline='middle';
   for(var y=0;y<YEARS;y++){c.fillStyle=(START+y)===1994?'#5b6470':'#c3ccd8';c.fillText(String(START+y),y*CELL+CELL/2,h/2);}
 });
 var years=new THREE.Mesh(new THREE.PlaneGeometry(YEARS,1.1),new THREE.MeshBasicMaterial({map:strip,transparent:true,fog:false}));
-years.rotation.x=-Math.PI/2;years.position.set((YEARS-1)/2,0.01,0.75);field.add(years);
+years.rotation.x=-Math.PI/2;years.position.set((YEARS-1)/2,0.04,0.75);field.add(years);
 function label(text,x,y,z,size){
   var t=canvasTexture(256,96,function(c){c.font='600 44px Menlo,Consolas,monospace';c.textAlign='center';c.textBaseline='middle';
     c.fillStyle='#c3ccd8';c.fillText(text,128,48);});
@@ -506,12 +517,12 @@ function fleet(n,geo,mat,moving){var m=new THREE.InstancedMesh(geo,mat,Math.max(
 var lanes=[],LANE=[RW*0.25,RW*0.75],STOP=RW+SW+0.1,NC=0;
 function addLanes(ew,count,len){var j,d,l,s,L;
   for(j=1;j<count;j++)for(d=-1;d<2;d+=2)for(l=0;l<2;l++){L={ew:ew,line:j*CP,dir:d,off:LANE[l],len:len,n:Math.round(len/CP),cars:[]};
-    for(s=lr()*20;s<len-1;s+=5+lr()*30)L.cars.unshift({s:s,v:0,vmax:0.42+0.3*lr(),ix:NC++});   // leader first
+    for(s=lr()*20;s<len-1;s+=8+lr()*44)L.cars.unshift({s:s,v:0,vmax:0.42+0.3*lr(),ix:NC++});   // leader first
     lanes.push(L);}}
 addLanes(true,NZ,LX);    // streets: z = ZA - j*CP
 addLanes(false,NX,LZ);   // avenues: x = X0 + j*CP
-var cars=fleet(NC,new THREE.BoxGeometry(0.135,0.036,0.056).translate(0,0.03,0),new THREE.MeshStandardMaterial({roughness:0.4,metalness:0.5}),1);
-var cabs=fleet(NC,new THREE.BoxGeometry(0.07,0.026,0.05).translate(-0.008,0.06,0),new THREE.MeshStandardMaterial({color:0x18202c,roughness:0.2,metalness:0.6}),1);
+var cars=fleet(NC,new THREE.BoxGeometry(0.135,0.036,0.056).translate(0,0.03,0),new THREE.MeshLambertMaterial({}),1);
+var cabs=fleet(NC,new THREE.BoxGeometry(0.07,0.026,0.05).translate(-0.008,0.06,0),new THREE.MeshLambertMaterial({color:0x18202c}),1);
 var heads=fleet(NC,new THREE.BoxGeometry(0.007,0.012,0.048).translate(0.069,0.032,0),new THREE.MeshBasicMaterial({color:0xfff1c0}),1);
 var tails=fleet(NC,new THREE.BoxGeometry(0.007,0.01,0.048).translate(-0.069,0.032,0),new THREE.MeshBasicMaterial({color:0xff2a1a}),1);
 var PAINT=[0xd9dde3,0x20242b,0x8b9099,0xb3261e,0x1f4e9c,0xf2f2f2,0x2e6b4a,0x6b7a8c],CLOTH=[0xc8433a,0x3a6fc8,0xe0c04a,0x4aa36b,0xdddddd,0x333a48,0xb86bc4,0xe08a3a],SKIN_TONES=[0xf1c9a5,0xd9a47a,0xa9744f,0x7a4d32,0x5a3a26];
@@ -536,8 +547,8 @@ function traffic(dt,t){
   cars.instanceMatrix.needsUpdate=cabs.instanceMatrix.needsUpdate=heads.instanceMatrix.needsUpdate=tails.instanceMatrix.needsUpdate=true;
 }
 // People: each walks one pavement (0.27 from the road centre) end to end
-var NP=2600,peds=[],bodies=fleet(NP,new THREE.BoxGeometry(0.014,0.034,0.011).translate(0,0.017,0),new THREE.MeshStandardMaterial({roughness:0.9}),1);
-var faces=fleet(NP,new THREE.OctahedronGeometry(0.009,1).translate(0,0.042,0),new THREE.MeshStandardMaterial({roughness:0.9}),1);
+var NP=1600,peds=[],bodies=fleet(NP,new THREE.BoxGeometry(0.014,0.034,0.011).translate(0,0.017,0),new THREE.MeshLambertMaterial({}),1);
+var faces=fleet(NP,new THREE.OctahedronGeometry(0.009,1).translate(0,0.042,0),new THREE.MeshLambertMaterial({}),1);
 (function(){var i,ew;for(i=0;i<NP;i++){ew=lr()<0.5;
   peds.push({ew:ew,line:(1+Math.floor(lr()*((ew?NZ:NX)-1)))*CP,side:(lr()<0.5?1:-1)*(RW+SW*(0.25+0.5*lr())),dir:lr()<0.5?1:-1,s:lr(),v:0.03+0.035*lr(),ph:lr()*6.28});
   bodies.setColorAt(i,tmpC.set(CLOTH[Math.floor(lr()*CLOTH.length)]));faces.setColorAt(i,tmpC.set(SKIN_TONES[Math.floor(lr()*SKIN_TONES.length)]));}})();
@@ -563,27 +574,28 @@ function walk(t){
   }
   for(i=1;i<NX;i++)for(j=1;j<NZ;j++){sig.push([X0+i*CP+RW+0.03,ZA-j*CP+RW+0.03],[X0+i*CP-RW-0.03,ZA-j*CP-RW-0.03]);}
   function place(mesh,list,fn){list.forEach(function(s,k){dummy.position.set(s[0],0,s[1]);dummy.rotation.y=0;dummy.scale.set(1,1,1);if(fn)fn(s,k);dummy.updateMatrix();mesh.setMatrixAt(k,dummy.matrix);});}
-  var trunks=fleet(trees.length,new THREE.CylinderGeometry(0.006,0.008,0.05,3).translate(0,0.025,0),new THREE.MeshStandardMaterial({color:0x4a3524,roughness:1}));
-  var leaves=fleet(trees.length,new THREE.OctahedronGeometry(0.042,0).translate(0,0.078,0),new THREE.MeshStandardMaterial({color:0x2f7048,roughness:1,flatShading:true}));
+  var trunks=fleet(trees.length,new THREE.CylinderGeometry(0.006,0.008,0.05,3).translate(0,0.025,0),new THREE.MeshLambertMaterial({color:0x4a3524}));
+  var leaves=fleet(trees.length,new THREE.OctahedronGeometry(0.042,0).translate(0,0.078,0),new THREE.MeshLambertMaterial({color:0x2f7048,flatShading:true}));
   var sizes=trees.map(function(){return 0.7+0.8*lr();});
   [trunks,leaves].forEach(function(m){place(m,trees,function(s,k){dummy.rotation.y=k;dummy.scale.setScalar(sizes[k]);});});
   place(fleet(lamps.length,new THREE.CylinderGeometry(0.004,0.004,0.13,3).translate(0,0.065,0),STEEL),lamps);
   place(fleet(lamps.length,new THREE.OctahedronGeometry(0.014,0).translate(0,0.135,0),new THREE.MeshBasicMaterial({color:0xffe2a0})),lamps);
-  place(fleet(lawns.length,new THREE.BoxGeometry(2.3,0.008,2.3).translate(0,0.004,0),new THREE.MeshStandardMaterial({color:0x1f4a33,roughness:1})),lawns);
+  place(fleet(lawns.length,new THREE.BoxGeometry(2.3,0.02,2.3).translate(0,0.01,0),new THREE.MeshLambertMaterial({color:0x1f4a33})),lawns);
   place(fleet(sig.length,new THREE.CylinderGeometry(0.005,0.005,0.17,3).translate(0,0.085,0),STEEL),sig);
   place(fleet(sig.length,new THREE.OctahedronGeometry(0.015,0).translate(0.018,0.16,0),sigEW),sig);
   place(fleet(sig.length,new THREE.OctahedronGeometry(0.015,0).translate(0,0.16,0.018),sigNS),sig);
   // Background low-rises: plain, dark, no plate and no hover card, so they cannot be mistaken for a campaign
   var wt=canvasTexture(96,48,function(g){g.fillStyle='#9aa2ad';g.fillRect(0,0,96,48);var r2=rng(77),x,y;
     for(y=0;y<3;y++)for(x=0;x<6;x++){g.fillStyle=r2()<0.18?'#d9c48f':'#2a313c';g.fillRect(x*16+4,y*16+4,8,9);}});
-  var side=new THREE.MeshStandardMaterial({map:wt,roughness:0.9}),roofM=new THREE.MeshStandardMaterial({color:0x2a2f37,roughness:1});
+  var side=new THREE.MeshLambertMaterial({map:wt}),roofM=new THREE.MeshLambertMaterial({color:0x2a2f37});
   var lows=fleet(fill.length,new THREE.BoxGeometry(1,1,1).translate(0,0.5,0),[side,side,roofM,roofM,side,side]);
   var TONE=[0x6d7480,0x7d7468,0x5d6672,0x86796a,0x70787f];
   place(lows,fill,function(s,k){dummy.scale.set(s[2],s[4],s[3]);lows.setColorAt(k,tmpC.set(TONE[k%TONE.length]));});
   dummy.scale.set(1,1,1);
 })();
 var STILL=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches,clock=new THREE.Clock(),simT=0;
-function animate(){var dt=Math.min(0.05,clock.getDelta());simT+=dt;traffic(dt,simT);walk(simT);}
+var frameNo=0,lifeEvery=1;
+function animate(){var dt=Math.min(0.05,clock.getDelta());simT+=dt;frameNo++;traffic(dt,simT);if(frameNo%(2*lifeEvery)===0)walk(simT);}
 (function(){for(var i=0;i<200;i++){simT+=0.05;traffic(0.05,simT);}walk(simT);})();   // start with traffic already flowing
 
 // ---------- catalog: every building on one sheet, so each design can be checked ----------
@@ -604,7 +616,7 @@ function openCatalog(){
     D.map(function(d,ix){return ix;}).filter(function(ix){return D[ix].f===o.value;}).sort(function(a,b){return D[a].y-D[b].y;}).forEach(function(ix){
       var d=D[ix],f=document.createElement('figure'),img=document.createElement('img'),cap=document.createElement('figcaption');
       img.width=W;img.height=Hh;img.alt=d.y+' '+d.n;f.style.borderBottomColor=COLORS[d.g];
-      cap.innerHTML='<b>'+d.y+'</b> '+d.n+'<br>OPS '+d.o+' · '+LABELS[d.g]+(d.k>=0?'<br><i>'+NAMES[d.k]+'</i>':'');
+      cap.innerHTML='<b>'+d.y+'</b> '+d.n+'<br>OPS '+d.o+' · '+LABELS[d.g]+'<br><i>'+d.bn+'</i>';
       f.appendChild(img);f.appendChild(cap);grid.appendChild(f);
       f.addEventListener('click',function(){cat.style.display='none';if(state.view!=='city')set('view','city');flyTo(ix);});
       jobs.push([ix,img]);});
@@ -627,7 +639,7 @@ function active(){return state.view==='city'?builds:bars;}
 function apply(){
   var shown=0,city=state.view==='city',on=active(),off=city?bars:builds;pick=[];
   ground.material=city?STREETS:PLAIN;life.visible=city;
-  document.getElementById('keynote').textContent=city?'City view: every building has its own design and colour. The key colour is the plate under each building and the edge of the hover card.':'';scene.fog.density=city?0.0042:0.0022;
+  document.getElementById('keynote').textContent=city?'City view: every building is modelled on a different real tower. The key colour is the plate under each building and the edge of the hover card.':'';scene.fog.density=city?0.0042:0.0022;
   if(PITCH!==(city?CP:BP)||!apply.ready){apply.ready=1;setPitch(city?CP:BP);homeView();}
   D.forEach(function(d,ix){
     var pass=(!state.org||d.f===state.org)&&(!state.season||d.y===+state.season)&&d.G>=state.minG&&(state.streak==='any'||d.L);
@@ -670,7 +682,7 @@ function probe(){
   var hit=ray.intersectObjects(pick,false)[0],ix=hit?hit.object.userData.ix:-1;
   if(ix<0){if(cur>=0&&!hideTimer)hideTimer=setTimeout(function(){hideTimer=null;hide();},160);return;}
   clearTimeout(hideTimer);hideTimer=null;
-  if(ix!==cur){cur=ix;card.innerHTML=D[ix].t+(state.view==='city'?'<div style="margin-top:6px;color:#8b949e">Shape: '+(D[ix].k<0?'one-of-a-kind design':NAMES[D[ix].k])+' (decoration)</div>':'');card.style.borderLeftColor=COLORS[D[ix].g];card.style.display='block';
+  if(ix!==cur){cur=ix;card.innerHTML=D[ix].t+(state.view==='city'?'<div style="margin-top:6px;color:#8b949e">Modelled on: '+D[ix].bn+'</div>':'');card.style.borderLeftColor=COLORS[D[ix].g];card.style.display='block';
     outline.box.setFromObject(active()[ix]);outline.visible=true;}
   place();
 }
@@ -685,7 +697,12 @@ state=defaults();sync();apply();resize();
 // Deep link: ?look=1993-TOR opens close to that campaign's building
 (function(){var q=/[?&]look=(\d{4})-(\w+)/.exec(location.search);if(!q)return;
   var ix=D.findIndex(function(d){return d.y===+q[1]&&d.f===q[2];});if(ix>=0&&state.view==='city')flyTo(ix);})();
-(function loop(){requestAnimationFrame(loop);controls.update();if(life.visible&&!STILL&&document.getElementById('cat').style.display!=='block')animate();else clock.getDelta();if(moved&&!dragging){moved=false;probe();}renderer.render(scene,camera);})();
+// If frames run long, render at a lower resolution so movement stays smooth
+var lastT=performance.now(),slow=0,fast=0;
+function pace(){var now=performance.now(),ms=now-lastT;lastT=now;if(ms>250)return;
+  if(ms>24){slow++;fast=0;}else{fast++;if(fast>30)slow=0;}
+  if(slow>40&&DPR>0.75){DPR=Math.max(0.75,DPR-0.25);renderer.setPixelRatio(DPR);resize();slow=0;if(DPR<=1)lifeEvery=2;}}
+(function loop(){requestAnimationFrame(loop);pace();controls.update();if(life.visible&&!STILL&&document.getElementById('cat').style.display!=='block')animate();else clock.getDelta();if(moved&&!dragging){moved=false;probe();}renderer.render(scene,camera);})();
 window.city={scene:scene,camera:camera,controls:controls,builds:builds,bars:bars,D:D,set:set,state:function(){return state;},renderer:renderer,probe:probe};
 })();
 </script></body></html>
@@ -707,11 +724,23 @@ def main():
 
     best = df[df["qualified"]].sort_values("OPS", ascending=False).head(len(BUILDINGS))
     landmark = {(int(r.year), r.franch_id): LANDMARK_ORDER[n] for n, r in enumerate(best.itertuples())}
+    # Every other campaign is modelled on its own real tower from real_towers.py: the list runs roughly from
+    # the tallest and best known down, and is handed out in order of OPS.
+    towers = real_towers.load(len(PALETTE))
+    rest = df[~df.index.isin(best.index)].sort_values("OPS", ascending=False)
+    if len(towers) < len(rest):
+        raise ValueError(f"real_towers.py lists {len(towers)} towers; {len(rest)} are needed")
+    model = {(int(r.year), r.franch_id): towers[n] for n, r in enumerate(rest.itertuples())}
     records = []
     for r in df.itertuples():
+        key = (int(r.year), r.franch_id)
+        if key in landmark:
+            bn, b = f"{BUILDINGS[landmark[key]]}, {LANDMARK_CITIES[landmark[key]]}", None
+        else:
+            bn, b = model[key]
         records.append(dict(y=int(r.year), s=int(r.slot), g=LEVEL_INDEX[r.result], G=int(r.G), f=r.franch_id, n=r.team_name, o=fmt(r.OPS),
                             L=int(bool(r.in_long_streak)), h=round(max(MIN_HEIGHT, to_height(r.OPS)), 4),
-                            k=landmark.get((int(r.year), r.franch_id), -1), t=hover(r, n_all, n_qual)))
+                            k=landmark.get(key, -1), bn=bn, b=b, t=hover(r, n_all, n_qual)))
     ticks = [[fmt(v), round(to_height(v), 4)] for v in (0.3, 0.5, 0.7, 0.9) if to_height(v) > 0.03]
 
     latest = df.sort_values("year").groupby("franch_id").tail(1).set_index("franch_id")["team_name"]
@@ -747,7 +776,7 @@ def main():
     C.OUT.mkdir(parents=True, exist_ok=True)
     OUT_FILE.write_text(html, encoding="utf-8")
     print(f"Wrote {OUT_FILE.relative_to(C.ROOT)} ({OUT_FILE.stat().st_size / 1e6:.1f} MB): {n_all} buildings, "
-          f"{len(BUILDINGS)} landmarks, {n_all - len(BUILDINGS)} one-of-a-kind designs")
+          f"{len(BUILDINGS)} detailed landmarks, {n_all - len(BUILDINGS)} other real towers")
     for n, r in enumerate(best.itertuples()):
         print(f"  {BUILDINGS[LANDMARK_ORDER[n]]}: {int(r.year)} {r.team_name} ({fmt(r.OPS)})")
 
