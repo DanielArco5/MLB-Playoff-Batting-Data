@@ -85,6 +85,8 @@ input[type=range]{width:100%;accent-color:#e9edf2;margin:2px 0 0}
 .catgrid figure:hover{border-color:#8b949e}
 .catgrid img{display:block;width:100%;height:auto;background:#0d131c}
 .catgrid figcaption{padding:6px 8px 8px;font-size:11px;line-height:1.4;color:__MUTED__}.catgrid b{color:#fff;font-size:12px}.catgrid i{color:#c9d1d9}
+#drag{position:absolute;top:12px;right:14px;z-index:5;align-items:center;background:rgba(13,17,23,.82);border:1px solid #2a313b;border-radius:6px;padding:5px 6px}
+#drag span{font-size:11px;color:__MUTED__;padding:0 4px}
 #fail{display:none;position:absolute;inset:0;padding:40px;font-size:15px}
 @media (max-width:760px){body{flex-direction:column;overflow:auto}#panel{flex:none;border-right:0;border-bottom:1px solid #1c2128}
   #stage{flex:none;height:78vh}}
@@ -105,12 +107,12 @@ input[type=range]{width:100%;accent-color:#e9edf2;margin:2px 0 0}
     <button data-v="fade">Faded</button><button data-v="hide">Hidden</button></div></div>
   <div><div id="count"></div><div class="grp" style="margin-top:6px"><button id="reset">Reset filters</button><button id="view">Reset view</button><button id="whole">Whole field</button></div>
     <div class="grp" style="margin-top:6px"><button id="catopen">Check every building</button></div></div>
-  <p class="notes">Drag to orbit, scroll to zoom, right-drag or arrow keys to move along the streets, hover a building for details. The empty block is 1994, when no postseason was played.
+  <p class="notes">Drag to slide across the board (or use the arrow keys), scroll to zoom, right-drag or Shift+drag to turn the view, hover a building for details. The view stops at the edges of the board. The empty block is 1994, when no postseason was played.
   Height differences are drawn at twice their true size, measured from the median campaign; the ruler and hover cards show true OPS.
   In the City view every building is a simplified model of a different real tower, named on its hover card, and its highest point, spire included, is its height: the better the OPS, the taller the building, and it is drawn wider too. The twelve best offenses with 8+ games get the detailed landmarks (__NAMELIST__); the rest follow their tower's overall form, crown, facade type and colour, not its exact proportions. Roughly, the better the OPS, the taller and better known the real tower. Which tower a campaign has, the lit windows, and the roads, traffic, people, parks and the plain dark low-rises without a plate carry no data; how far the team went is the colour of the plate under the building. The Bars view shows the same data as plain bars.<br><br>
   Data: Lahman Baseball Database (CC BY-SA 3.0) and the MLB Stats API.</p>
 </aside>
-<main id="stage"><div id="fail">This view needs WebGL, which this browser could not start.</div></main>
+<main id="stage"><div id="drag" class="grp"><span>Drag to</span><button data-v="move">Move</button><button data-v="rotate">Rotate</button></div><div id="fail">This view needs WebGL, which this browser could not start.</div></main>
 <div id="card" role="status"></div>
 <section id="cat"><header><h2>Building catalog</h2><p id="catnote"></p><button id="catclose">Back to the city</button></header><div id="catbody"></div></section>
 <script>__THREE__</script>
@@ -140,8 +142,19 @@ var controls=new THREE.OrbitControls(camera,renderer.domElement);
 controls.enableDamping=true;controls.dampingFactor=0.08;controls.maxPolarAngle=Math.PI/2-0.04;
 controls.minDistance=1.2;controls.maxDistance=140*PITCH;controls.zoomSpeed=0.7;controls.screenSpacePanning=false;controls.listenToKeyEvents(window);controls.keyPanSpeed=28;
 var sprites=[];
+// Dragging grabs the ground and slides the view; right-drag or Shift+drag (or the Rotate mode) turns it.
+controls.touches={ONE:THREE.TOUCH.PAN,TWO:THREE.TOUCH.DOLLY_ROTATE};
+function dragMode(m){controls.mouseButtons.LEFT=m==='rotate'?THREE.MOUSE.ROTATE:THREE.MOUSE.PAN;controls.mouseButtons.RIGHT=m==='rotate'?THREE.MOUSE.PAN:THREE.MOUSE.ROTATE;
+  controls.touches.ONE=m==='rotate'?THREE.TOUCH.ROTATE:THREE.TOUCH.PAN;controls.touches.TWO=m==='rotate'?THREE.TOUCH.DOLLY_PAN:THREE.TOUCH.DOLLY_ROTATE;
+  document.querySelectorAll('#drag button').forEach(function(b){b.classList.toggle('on',b.dataset.v===m);});}
+// The view cannot leave the board: the point the camera looks at is kept on the field, a little above the ground at most.
+controls.addEventListener('change',function(){
+  var t=controls.target,x=Math.min((YEARS+0.5)*PITCH,Math.max(-1.5*PITCH,t.x)),z=Math.min(1.5*PITCH,Math.max(-(SLOTS+1.5)*PITCH,t.z)),y=Math.min(6,Math.max(0,t.y));
+  if(x!==t.x||y!==t.y||z!==t.z){camera.position.x+=x-t.x;camera.position.y+=y-t.y;camera.position.z+=z-t.z;t.set(x,y,z);}
+  if(camera.position.y<0.15)camera.position.y=0.15;
+});
 // The two views use different spacing: a full city block per campaign in the City view, tight rows in Bars.
-function setPitch(p){PITCH=p;field.scale.set(p,1,p);controls.maxDistance=140*p;sprites.forEach(function(sp){sp.scale.y=sp.userData.size*p;});}
+function setPitch(p){PITCH=p;field.scale.set(p,1,p);controls.maxDistance=62*p;sprites.forEach(function(sp){sp.scale.y=sp.userData.size*p;});}
 function homeView(){
   if(PITCH===CP){controls.target.set(YEARS*0.62*CP,1.4,-3.2*CP);camera.position.set(YEARS*0.62*CP-13,8.5,13);}   // City: among the towers
   else{camera.position.set((YEARS/2-2)*PITCH,28*PITCH,54*PITCH);controls.target.set((YEARS/2-0.5)*PITCH,0.5,-6*PITCH);}   // Bars: the whole field
@@ -667,6 +680,7 @@ document.getElementById('season').addEventListener('change',function(e){set('sea
 document.getElementById('ming').addEventListener('input',function(e){set('minG',+e.target.value);});
 document.getElementById('reset').addEventListener('click',function(){state=defaults();sync();apply();});
 document.getElementById('view').addEventListener('click',homeView);
+document.querySelectorAll('#drag button').forEach(function(b){b.addEventListener('click',function(){dragMode(b.dataset.v);});});dragMode('move');
 document.getElementById('whole').addEventListener('click',wholeField);
 
 // ---------- hover card ----------
